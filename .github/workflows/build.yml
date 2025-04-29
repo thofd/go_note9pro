@@ -2,10 +2,7 @@ name: Build SukiSU-Ultra Kernel for Gauguin
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - main
-
+  
 jobs:
   build:
     runs-on: ubuntu-latest
