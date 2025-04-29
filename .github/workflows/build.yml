@@ -15,8 +15,8 @@ jobs:
       BUILD_USER: thofd
       BUILD_HOST: github-actions
       SUKISU_BRANCH: main
-      SUKISU_REPO: SukiSU/SukiSU-Ultra.git
-      ZIP_TOOL_REPO: osm0sis/AnyKernel3.git
+      SUKISU_REPO: https://github.com/SukiSU/SukiSU-Ultra.git
+      ZIP_TOOL_REPO: https://github.com/osm0sis/AnyKernel3.git
 
     steps:
     - name: Checkout Kernel Source
