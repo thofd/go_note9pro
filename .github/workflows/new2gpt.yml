@@ -1,0 +1,70 @@
+name: Build Kernel for Redmi Note 9 Pro 5G (gauguin)
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout kernel source
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        run: |
+          # Install required packages for Android kernel build&#8203;:contentReference[oaicite:0]{index=0}
+          sudo apt-get update
+          sudo apt-get install -y git make bc bison ccache openssl zip kmod cpio flex libelf-dev curl libssl-dev libtfm-dev wget device-tree-compiler ca-certificates python3 python2 binutils binutils-aarch64-linux-gnu gcc-aarch64-linux-gnu binutils-arm-linux-gnueabi gcc-arm-linux-gnueabi
+
+      - name: Download AOSP Clang r416183b
+        run: |
+          # Download AOSP Clang r416183b toolchain (Android 12 release)
+          wget -qO clang-r416183b.tar.gz "https://github.com/ravindu644/Android-Kernel-Tutorials/releases/download/toolchains/clang-r416183b.tar.gz"
+          mkdir clang
+          tar -xzf clang-r416183b.tar.gz -C clang
+
+      - name: Set custom defconfig
+        run: |
+          # Use custom gauguin_user_defconfig
+          make ARCH=arm64 vendor/gauguin_user_defconfig
+
+      - name: Integrate SukiSU-Ultra (enable SUSFS)
+        run: |
+          # Integrate KernelSU-based SukiSU-Ultra (susfs-dev branch)&#8203;:contentReference[oaicite:1]{index=1}
+          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
+
+      - name: Compile kernel
+        run: |
+          # Compile the kernel with AOSP Clang and caching&#8203;:contentReference[oaicite:2]{index=2}
+          export PATH=$PWD/clang/clang-r416183b/bin:$PATH
+          make -j$(nproc) ARCH=arm64 CC="ccache clang" CROSS_COMPILE="aarch64-linux-gnu-" CROSS_COMPILE_ARM32="arm-linux-gnueabi-" O=out LLVM=1 LLVM_IAS=1
+
+      - name: Prepare AnyKernel3 packaging
+        run: |
+          # Clone AnyKernel3 template and configure it for Xiaomi (disable checks)&#8203;:contentReference[oaicite:3]{index=3}
+          git clone https://github.com/osm0sis/AnyKernel3 AnyKernel3
+          sed -i 's/do.devicecheck=1/do.devicecheck=0/g' AnyKernel3/anykernel.sh
+          sed -i 's!block=/dev/block/platform/omap/omap_hsmmc.0/by-name/boot;!block=/dev/block/bootdevice/by-name/boot;!g' AnyKernel3/anykernel.sh
+          sed -i 's/is_slot_device=1;/is_slot_device=0;/g' AnyKernel3/anykernel.sh
+
+      - name: Copy kernel image
+        run: |
+          # Copy the compiled kernel image into AnyKernel3 folder
+          if [ -f out/arch/arm64/boot/Image.gz-dtb ]; then
+            cp out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+          else
+            cp out/arch/arm64/boot/Image AnyKernel3/
+          fi
+          # Clean unnecessary files
+          rm -rf AnyKernel3/.git* AnyKernel3/README.md AnyKernel3/ramdisk AnyKernel3/modules AnyKernel3/patch
+
+      - name: Create flashable ZIP
+        run: |
+          # Package the AnyKernel3 directory into a flashable ZIP
+          cd AnyKernel3
+          zip -r ../gauguin_kernel_anykernel.zip * 
+
+      - name: Upload Kernel ZIP artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: gauguin_kernel_zip
+          path: gauguin_kernel_anykernel.zip
