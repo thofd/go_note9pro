@@ -8,7 +8,7 @@ jobs:
     runs-on: ubuntu-latest
 
     env:
-      KERNEL_REPO: thofd/neko_kernel_xiaomi_gauguin
+      KERNEL_REPO: https://github.com/thofd/neko_kernel_xiaomi_gauguin
       KERNEL_BRANCH: main
       DEFCONFIG: vendor/gauguin_user_defconfig
       DEVICE_NAME: gauguin
