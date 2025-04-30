@@ -16,8 +16,6 @@ jobs:
       BUILD_HOST: github-actions
       SUKISU_BRANCH: susfs-dev
       SUKISU_REPO: https://github.com/ShirkNeko/SukiSU-Ultra.git
-      ZIP_TOOL_REPO: https://github.com/osm0sis/AnyKernel3.git
-      TZ: Asia/Shanghai
 
     steps:
     - name: Set up timezone
