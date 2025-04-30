@@ -1,0 +1,81 @@
+name: Build SukiSU-Ultra Kernel for Gauguin
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    env:
+      KERNEL_REPO: thofd/neko_kernel_xiaomi_gauguin
+      KERNEL_BRANCH: main
+      DEFCONFIG: vendor/gauguin_user_defconfig
+      DEVICE_NAME: gauguin
+      BUILD_USER: thofd
+      BUILD_HOST: github-actions
+      SUKISU_BRANCH: susfs-dev
+      SUKISU_REPO: https://github.com/ShirkNeko/SukiSU-Ultra.git
+      ZIP_TOOL_REPO: https://github.com/osm0sis/AnyKernel3.git
+      TZ: Asia/Shanghai
+
+    steps:
+    - name: Set up timezone
+      run: sudo timedatectl set-timezone "$TZ"
+
+    - name: Install dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y git wget build-essential bc bison flex \
+          libssl-dev libncurses5-dev libncursesw5-dev clang llvm lld \
+          curl zip unzip cpio python3
+
+    - name: Clone kernel source
+      uses: actions/checkout@v3
+      with:
+        repository: ${{ env.KERNEL_REPO }}
+        ref: ${{ env.KERNEL_BRANCH }}
+        path: kernel
+
+    - name: Clone SukiSU-Ultra
+      run: |
+        git clone --depth=1 -b $SUKISU_BRANCH $SUKISU_REPO kernel/sukisu
+
+    - name: Apply SUSFS
+      run: |
+        cd kernel
+        git submodule add https://github.com/tiann/KernelSU external/KernelSU || true
+        git submodule update --init --recursive
+        echo "✅ SUSFS/KSU synced"
+
+    - name: Download AOSP Clang r416183b
+      run: |
+        mkdir clang
+        cd clang
+        wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/master/clang-r416183b.tar.gz -O clang.tar.gz
+        tar -xzf clang.tar.gz
+        echo "✅ Clang ready"
+
+    - name: Build kernel
+      run: |
+        cd kernel
+        export PATH="$GITHUB_WORKSPACE/clang/bin:$PATH"
+        make O=out ARCH=arm64 $DEFCONFIG
+        make -j$(nproc) O=out ARCH=arm64 \
+          CC=clang \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+
+    - name: Package with AnyKernel3
+      run: |
+        git clone https://github.com/osm0sis/AnyKernel3.git
+        cp kernel/out/arch/arm64/boot/Image.gz-dtb AnyKernel3/
+        cp scripts/post-flash.sh AnyKernel3/
+        cd AnyKernel3
+        zip -r9 ../SukiSU-Ultra-${{ env.DEVICE_NAME }}.zip *
+
+    - name: Upload artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: SukiSU-Ultra-${{ env.DEVICE_NAME }}
+        path: SukiSU-Ultra-${{ env.DEVICE_NAME }}.zip
