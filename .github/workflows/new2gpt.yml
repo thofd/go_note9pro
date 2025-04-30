@@ -4,7 +4,8 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    name: Build Kernel by ${{ github.actor }}
+    runs-on: ubuntu-22.04
     steps:
       - name: Checkout kernel source
         uses: actions/checkout@v4
