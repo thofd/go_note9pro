@@ -77,7 +77,7 @@ jobs:
         zip -r9 ../${KERNEL_NAME}-${DEVICE}-$(date +%Y%m%d-%H%M).zip * -x .git*
 
     - name: Upload artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ env.KERNEL_NAME }}-${{ env.DEVICE }}
         path: ${{ github.workspace }}/*.zip
