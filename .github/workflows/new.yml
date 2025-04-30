@@ -1,4 +1,4 @@
-name: Build SukiSU-Ultra Kernel for Gauguin
+name: SukiSU-Ultra Gauguin
 
 on:
   workflow_dispatch:
