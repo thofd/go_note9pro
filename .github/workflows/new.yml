@@ -29,7 +29,7 @@ jobs:
           curl zip unzip cpio python3
 
     - name: Clone kernel source
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
       with:
         repository: ${{ env.KERNEL_REPO }}
         ref: ${{ env.KERNEL_BRANCH }}
