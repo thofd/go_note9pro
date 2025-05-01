@@ -1,10 +1,11 @@
 name: Build CHATGPT NOTE9PRO 
+
 on:
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
     permissions:
       contents: read
       actions: write
@@ -24,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc build-essential libncurses5-dev flex bison wget zip unzip
+          sudo apt-get install -y bc build-essential libncurses5-dev flex bison wget zip unzip python2 gcc-aarch64-linux-gnu
 
       - name: Download AOSP Clang ${{ env.CLANG_VERSION }}
         run: |
@@ -54,7 +55,7 @@ jobs:
       - name: Compile kernel
         run: |
           make -j$(nproc) \
-            ARCH=${{ env.ARCH }} O=$OUTPUT_DIR CC=clang \
+            ARCH=${{ env.ARCH }} O=$OUTPUT_DIR CC=$CLANG_DIR/bin/clang \
             CLANG_TRIPLE=aarch64-linux-gnu- LD=ld.lld \
             OBJDUMP=llvm-objdump OBJCOPY=llvm-objcopy READELF=llvm-readelf \
             STRIP=llvm-strip CROSS_COMPILE=${{ env.CROSS_COMPILE }}
