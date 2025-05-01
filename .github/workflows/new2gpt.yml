@@ -13,7 +13,6 @@ jobs:
       ARCH: arm64
       DEFCONFIG: vendor/gauguin_user_defconfig
       CLANG_VERSION: r416183b
-      CLANG_DIR: ${{ runner.temp }}/clang
       ANYKERNEL_REPO: https://github.com/osm0sis/AnyKernel3.git
 
     steps:
@@ -30,14 +29,16 @@ jobs:
 
       - name: Download AOSP Clang ${{ env.CLANG_VERSION }}
         run: |
+          export CLANG_DIR=$RUNNER_TEMP/clang
+          echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
           wget -qO clang.tar.gz "https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/tags/r416183b/clang-r416183b.tar.gz"
-          mkdir -p ${{ env.CLANG_DIR }}
-          tar -xzf clang.tar.gz -C ${{ env.CLANG_DIR }} --strip-components=1
+          mkdir -p "$CLANG_DIR"
+          tar -xzf clang.tar.gz -C "$CLANG_DIR" --strip-components=1
           rm clang.tar.gz
 
       - name: Export toolchain variables
         run: |
-          echo "PATH=${{ env.CLANG_DIR }}/bin:$PATH" >> $GITHUB_ENV
+          echo "PATH=$CLANG_DIR/bin:$PATH" >> $GITHUB_ENV
           echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
           echo "KERNEL_DIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
           echo "OUTPUT_DIR=$GITHUB_WORKSPACE/out" >> $GITHUB_ENV
