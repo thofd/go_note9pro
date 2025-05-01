@@ -31,7 +31,7 @@ jobs:
           export CLANG_DIR=$RUNNER_TEMP/clang
           echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
           mkdir -p "$CLANG_DIR"
-          wget -qO clang.tar.gz https://gitlab.com/PixelOS-Devices/clang-builds/-/archive/r416183b/clang-builds-r416183b.tar.gz
+          wget -qO clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz
           tar -xzf clang.tar.gz --strip-components=1 -C "$CLANG_DIR"
           rm clang.tar.gz
 
