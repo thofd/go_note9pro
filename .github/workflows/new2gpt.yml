@@ -27,6 +27,10 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y bc build-essential libncurses5-dev flex bison wget zip unzip python2 gcc-aarch64-linux-gnu
 
+      - name: Install Python 2 and create symlink
+        run: |
+          sudo ln -s /usr/bin/python2 /usr/bin/python
+
       - name: Download AOSP Clang ${{ env.CLANG_VERSION }}
         run: |
           export CLANG_DIR=$RUNNER_TEMP/clang
