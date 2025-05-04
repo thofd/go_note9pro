@@ -22,8 +22,8 @@ jobs:
 
     - name: Install Dependencies
       run: |
-        sudo apt get update
-        sudo apt get install -y bc bison build-essential ccache curl flex git \
+        sudo apt-get update
+        sudo apt-get install -y bc bison build-essential ccache curl flex git \
           kmod libssl-dev libncurses-dev libelf-dev python3 zip wget \
           ca-certificates llvm-tools gcc-aarch64-linux-gnu
 
