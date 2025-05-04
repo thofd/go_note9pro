@@ -3,81 +3,84 @@ name: Build CHATGPT NOTE9PRO
 on:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
   build:
-    runs-on: ubuntu-22.04
+    name: Kernel Build
+    runs-on: ubuntu-latest
     permissions:
-      contents: read
       actions: write
-    env:
-      ARCH: arm64
-      DEFCONFIG: vendor/gauguin_user_defconfig
-      CLANG_VERSION: r416183b
-      ANYKERNEL_REPO: https://github.com/osm0sis/AnyKernel3.git
+      contents: read
 
     steps:
-      - name: Checkout kernel source
-        uses: actions/checkout@v4
-        with:
-          repository: thofd/neko_kernel_xiaomi_gauguin
-          submodules: false
+    - name: Checkout Kernel Source
+      uses: actions/checkout@v4
+      with:
+        repository: thofd/neko_kernel_xiaomi_gauguin
+        path: kernel
 
-      - name: Install dependencies
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bc build-essential libncurses5-dev flex bison wget zip unzip python2 gcc-aarch64-linux-gnu
-          sudo mv /usr/bin/python /usr/bin/python3
-          sudo ln -s /usr/bin/python2 /usr/bin/python
-          sudo apt-get install -y bc build-essential libncurses5-dev flex bison wget zip unzip python2 gcc-aarch64-linux-gnu
+    - name: Install Dependencies
+      run: |
+        sudo apt update
+        sudo apt install -y bc bison build-essential ccache curl flex git kmod libssl-dev \
+          libncurses-dev libelf-dev python3 zip wget ca-certificates axel
 
-      - name: Download AOSP Clang ${{ env.CLANG_VERSION }}
-        run: |
-          export CLANG_DIR=$RUNNER_TEMP/clang
-          echo "CLANG_DIR=$CLANG_DIR" >> $GITHUB_ENV
-          mkdir -p "$CLANG_DIR"
-          wget -qO clang.tar.gz https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz
-          tar -xzf clang.tar.gz --strip-components=1 -C "$CLANG_DIR"
-          rm clang.tar.gz
+    - name: Download AOSP Clang r416183b
+      run: |
+        mkdir -p toolchain/clang
+        cd toolchain
+        curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz
+        tar -xzf clang-r416183b.tar.gz -C clang
+        cd ..
 
-      - name: Export toolchain variables
-        run: |
-          echo "PATH=$CLANG_DIR/bin:$PATH" >> $GITHUB_ENV
-          echo "CROSS_COMPILE=aarch64-linux-gnu-" >> $GITHUB_ENV
-          echo "KERNEL_DIR=$GITHUB_WORKSPACE" >> $GITHUB_ENV
-          echo "OUTPUT_DIR=$GITHUB_WORKSPACE/out" >> $GITHUB_ENV
+    - name: Clone SukiSU-Ultra
+      run: |
+        git clone --depth=1 https://github.com/ShirkNeko/SukiSU-Ultra su
+        cp -r su/SukiSU kernel/
+        cp -r su/susfs kernel/
 
-      - name: Integrate SukiSU-Ultra with SUSFS
-        run: |
-          curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-dev
+    - name: Clone AnyKernel3
+      run: |
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
 
-      - name: Prepare kernel configuration
-        run: |
-          mkdir -p $OUTPUT_DIR
-          make ARCH=${{ env.ARCH }} O=$OUTPUT_DIR $DEFCONFIG
+    - name: Set Build Variables
+      run: |
+        echo "CLANG_PATH=${{ github.workspace }}/toolchain/clang" >> $GITHUB_ENV
+        echo "KERNEL_DIR=${{ github.workspace }}/kernel" >> $GITHUB_ENV
+        echo "OUT_DIR=${{ github.workspace }}/kernel/out" >> $GITHUB_ENV
+        echo "DEFCONFIG=vendor/gauguin_user_defconfig" >> $GITHUB_ENV
+        echo "IMAGE_PATH=${{ github.workspace }}/kernel/out/arch/arm64/boot/Image" >> $GITHUB_ENV
+        echo "AK3_DIR=${{ github.workspace }}/AnyKernel3" >> $GITHUB_ENV
 
-      - name: Compile kernel
-        run: |
-          make -j$(nproc) \
-            ARCH=${{ env.ARCH }} O=$OUTPUT_DIR CC=$CLANG_DIR/bin/clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- LD=ld.lld \
-            OBJDUMP=llvm-objdump OBJCOPY=llvm-objcopy READELF=llvm-readelf \
-            STRIP=llvm-strip CROSS_COMPILE=${{ env.CROSS_COMPILE }}
+    - name: Build Kernel
+      run: |
+        export PATH=$CLANG_PATH/bin:$PATH
+        cd $KERNEL_DIR
+        make O=$OUT_DIR ARCH=arm64 $DEFCONFIG CC=clang
+        make -j$(nproc) O=$OUT_DIR ARCH=arm64 \
+            CC=clang \
+            CLANG_TRIPLE=aarch64-linux-gnu- \
+            CROSS_COMPILE=aarch64-linux-gnu- \
+            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+            LD=ld.lld
 
-      - name: Clone AnyKernel3
-        run: |
-          git clone --depth 1 $ANYKERNEL_REPO AnyKernel3
+    - name: Verify Kernel Image
+      run: |
+        if [ ! -f "$IMAGE_PATH" ]; then
+          echo "❌ Kernel Image not found!"
+          exit 1
+        fi
+        cp "$IMAGE_PATH" "$AK3_DIR/Image"
 
-      - name: Copy kernel Image
-        run: |
-          cp $OUTPUT_DIR/arch/arm64/boot/Image AnyKernel3
+    - name: Package Flashable ZIP with AnyKernel3
+      run: |
+        cd "$AK3_DIR"
+        zip -r9 gauguin-SukiSU-Ultra.zip * -x .git README.md
 
-      - name: Package flashable zip
-        run: |
-          cd AnyKernel3
-          zip -r9 ../redmi9pro-gauguin-suki.zip .
-
-      - name: Upload flashable zip
-        uses: actions/upload-artifact@v4
-        with:
-          name: redmi9pro-kernel-suki
-          path: redmi9pro-gauguin-suki.zip
+    - name: Upload Kernel ZIP Artifact
+      uses: actions/upload-artifact@v4
+      with:
+        name: gauguin-SukiSU-Ultra
+        path: ${{ env.AK3_DIR }}/gauguin-SukiSU-Ultra.zip
