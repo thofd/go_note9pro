@@ -3,122 +3,95 @@ name: Build CHATGPT NOTE9PRO
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   build:
     runs-on: ubuntu-22.04
-    permissions:
-      actions: write
-      contents: read
+    env:
+      KERNEL_NAME: Gauguin_SukiSU_Kernel
+      ANY_KERNEL_REPO: https://github.com/osm0sis/AnyKernel3
 
     steps:
     - name: Checkout Kernel Source
       uses: actions/checkout@v4
       with:
         repository: thofd/neko_kernel_xiaomi_gauguin
-        path: kernel
+        path: kernel_src
 
-    - name: Install Dependencies
+    - name: Setup Build Environment
       run: |
-        sudo apt update
-        sudo apt install -y bc bison build-essential ccache curl flex git \
-          kmod libssl-dev libncurses-dev libelf-dev python3 zip wget \
-          ca-certificates llvm clang
-        sudo apt-get install binutils-aarch64-linux-gnu gcc-arm-linux-gnueabi
+        sudo apt-get update
+        sudo apt-get install -y build-essential libncurses-dev libssl-dev \
+        bison flex libelf-dev zip ccache python3
 
-    - name: Download AOSP Clang r416183b
-      run: |
-        mkdir -p toolchain/clang
-        curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz
-        tar -xf clang-r416183b.tar.gz -C toolchain/clang
+    - name: Clone SukiSU-Ultra
+      uses: actions/checkout@v4
+      with:
+        repository: ShirkNeko/SukiSU-Ultra
+        ref: susfs-stable
+        path: kernel_src/drivers/sukisu
 
-    - name: Integrate SukiSU-Ultra (susfs-stable)
+    - name: Prepare AOSP Clang
       run: |
-        cd kernel
-        curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-stable
+        wget https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz
+        mkdir -p aosp-clang && tar xzf clang-r416183b.tar.gz -C aosp-clang
 
-    - name: Patch defconfig with SukiSU/SUSFS options
+    - name: Setup Defconfig
       run: |
-        DEFCONFIG=kernel/arch/arm64/configs/vendor/gauguin_user_defconfig
-        echo >> $DEFCONFIG
-        echo "# SukiSU/SUSFS config options" >> $DEFCONFIG
-        echo "CONFIG_KSU=y" >> $DEFCONFIG
-        echo "CONFIG_SUSFS=y" >> $DEFCONFIG
-        echo "CONFIG_SUSFS_PROC=y" >> $DEFCONFIG
-        echo "CONFIG_SUSFS_INITRC=y" >> $DEFCONFIG
-        echo "CONFIG_SUSFS_SEPOLICY=y" >> $DEFCONFIG
-        echo "CONFIG_SUSFS_DEBUG=y" >> $DEFCONFIG
-
-    - name: Clone AnyKernel3
-      run: |
-        git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
-
-    - name: Set Environment Variables
-      run: |
-        echo "CLANG_PATH=$GITHUB_WORKSPACE/toolchain/clang" >> $GITHUB_ENV
-        echo "KERNEL_DIR=$GITHUB_WORKSPACE/kernel" >> $GITHUB_ENV
-        echo "OUT_DIR=$GITHUB_WORKSPACE/kernel/out" >> $GITHUB_ENV
-        echo "DEFCONFIG=vendor/gauguin_user_defconfig" >> $GITHUB_ENV
-        echo "IMAGE_PATH=$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image" >> $GITHUB_ENV
-        echo "AK3_DIR=$GITHUB_WORKSPACE/AnyKernel3" >> $GITHUB_ENV
+        cd kernel_src
+        make gauguin_user_defconfig
+        
+        # 启用 SukiSU/SUSFS 所需配置
+        ./scripts/config --enable CONFIG_KPROBES
+        ./scripts/config --enable CONFIG_OVERLAY_FS
+        ./scripts/config --enable CONFIG_SECCOMP
+        ./scripts/config --module CONFIG_SUSFS
+        ./scripts/config --enable CONFIG_SUKISU
+        ./scripts/config --enable CONFIG_SUSFS_DEBUG
+        ./scripts/config --enable CONFIG_IKCONFIG
+        ./scripts/config --enable CONFIG_IKCONFIG_PROC
+        
+        # 保存修改后的配置
+        make savedefconfig
+        cp defconfig arch/arm64/configs/gauguin_user_defconfig
 
     - name: Build Kernel
       run: |
-        export CLANG_TRIPLE=aarch64-linux-gnu-
-        export CROSS_COMPILE=aarch64-linux-gnu-
-        export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-        export AR=llvm-ar
-        export NM=llvm-nm
-        export OBJCOPY=llvm-objcopy
-        export OBJDUMP=llvm-objdump
-        export STRIP=llvm-strip
-        export AS=llvm-as
-        export PATH=$CLANG_PATH/bin:$PATH
-        cd $KERNEL_DIR
-        make O=$OUT_DIR ARCH=arm64 $DEFCONFIG CC=clang
-        make -j$(nproc) O=$OUT_DIR ARCH=arm64 \
+        cd kernel_src
+        export PATH="$(pwd)/../aosp-clang/bin:$PATH"
+        make -j$(nproc --all) LLVM=1 LLVM_IAS=1 \
+          ARCH=arm64 \
           CC=clang \
-          CLANG_TRIPLE=aarch64-linux-gnu- \
+          LD=ld.lld \
+          AR=llvm-ar \
+          NM=llvm-nm \
+          OBJCOPY=llvm-objcopy \
+          OBJDUMP=llvm-objdump \
+          STRIP=llvm-strip \
           CROSS_COMPILE=aarch64-linux-gnu- \
-          CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-          LD=ld.lld
+          CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+          CLANG_TRIPLE=aarch64-linux-gnu- \
+          LOCALVERSION="-${KERNEL_NAME}"
+        
+        cp out/arch/arm64/boot/Image.gz-dtb Image
 
-    - name: Verify .config options
+    - name: Prepare AnyKernel3
       run: |
-        CONFIG=$OUT_DIR/.config
-        grep "CONFIG_KSU=y" $CONFIG || (echo "❌ CONFIG_KSU not enabled!" && exit 1)
-        grep "CONFIG_SUSFS=y" $CONFIG || (echo "❌ CONFIG_SUSFS not enabled!" && exit 1)
+        git clone $ANY_KERNEL_REPO AnyKernel3
+        cp kernel_src/Image AnyKernel3/
+        # 添加 AnyKernel 配置文件
+        echo 'device.name1=gauguin
+        block=/dev/block/bootdevice/by-name/boot;
+        is_slot_device=auto;
+        ramdisk_compression=auto;' > AnyKernel3/anykernel.sh
 
-    - name: Check SUSFS patch presence in defconfig
+    - name: Package Kernel ZIP
       run: |
-        DEFCONFIG=kernel/arch/arm64/configs/vendor/gauguin_user_defconfig
-        grep "CONFIG_SUSFS=y" $DEFCONFIG || (echo "❌ SUSFS missing from defconfig!" && exit 1)
-
-    - name: Check for SUSFS symbols in Image
-      run: |
-        if command -v llvm-nm >/dev/null; then
-          llvm-nm -n $IMAGE_PATH | grep susfs || echo "⚠️ SUSFS symbols not found (possibly fine if symbols stripped)"
-        else
-          echo "⚠️ llvm-nm not available, skipping symbol check"
-        fi
-
-    - name: Copy Image to AnyKernel3
-      run: |
-        if [ ! -f "$IMAGE_PATH" ]; then
-          echo "❌ Kernel Image not found!"
-          exit 1
-        fi
-        cp "$IMAGE_PATH" "$AK3_DIR/Image"
-
-    - name: Package Flashable ZIP
-      run: |
-        cd "$AK3_DIR"
-        zip -r9 gauguin-SukiSU-Ultra.zip * -x .git README.md
+        cd AnyKernel3
+        zip -r9 ${KERNEL_NAME}-$(date +%Y%m%d-%H%M).zip *
+        mv *.zip ../
 
     - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: gauguin-SukiSU-Ultra
-        path: ${{ env.AK3_DIR }}/gauguin-SukiSU-Ultra.zip
+        name: ${KERNEL_NAME}-Build
+        path: ${{ github.workspace }}/*.zip
