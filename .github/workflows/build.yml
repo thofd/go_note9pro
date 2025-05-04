@@ -3,93 +3,72 @@ name: Build CHATGPT NOTE9PRO
 on:
   workflow_dispatch:
 
-permissions:
-  contents: read
-
 jobs:
   build:
     runs-on: ubuntu-22.04
-    permissions:
-      actions: write
-      contents: read
+
+    env:
+      ARCH: arm64
+      CROSS_COMPILE: aarch64-linux-gnu-
+      LLVM: 1
+      CC: clang
 
     steps:
-    - name: Checkout Kernel Source
+    - name: Checkout kernel source
       uses: actions/checkout@v4
       with:
         repository: thofd/neko_kernel_xiaomi_gauguin
-        path: kernel
+        fetch-depth: 0
 
-    - name: Install Dependencies
+    - name: Checkout SukiSU‑Ultra (susfs‑stable)
       run: |
-        sudo apt update
-        sudo apt install -y bc bison build-essential ccache curl flex git \
-          kmod libssl-dev libncurses-dev libelf-dev python3 zip wget \
-          ca-certificates
+        git clone --branch susfs-stable https://github.com/ShirkNeko/SukiSU-Ultra SukiSU-Ultra
 
-    - name: Download AOSP Clang r416183b
+    - name: 集成 SukiSU‑Ultra 与 SUSFS
       run: |
-        mkdir -p toolchain/clang
-        curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz
-        tar -xf clang-r416183b.tar.gz -C toolchain/clang
+        curl -LSs https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh | bash -s susfs-stable
+      # 官方推荐直接使用 susfs-stable 分支，无需手动再集成 susfs :contentReference[oaicite:0]{index=0}
 
-    - name: Integrate SukiSU-Ultra (susfs-stable)
+    - name: 安装编译依赖
+      run: sudo apt-get update && sudo apt-get install -y build-essential bc bison flex libssl-dev libelf-dev libncurses-dev ccache
+
+    - name: 下载并配置 AOSP Clang r416183b
       run: |
-        cd kernel
-        curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-stable
+        mkdir -p toolchains
+        cd toolchains
+        curl -LSs https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/android12-clang-r416183b.tar.gz | tar xz
+        cd ..
+        # 将 clang 加入 PATH
+        echo "$PWD/toolchains/clang-r416183b/bin" >> $GITHUB_PATH
 
-    - name: Patch defconfig with SukiSU/SUSFS options
+    - name: 生成 defconfig
+      run: make O=out vendor/gauguin_user_defconfig
+
+    - name: 在 defconfig 中启用 SukiSU/SUSFS 所需选项
       run: |
-        DEFCONFIG=kernel/arch/arm64/configs/vendor/gauguin_user_defconfig
-        echo >> $DEFCONFIG
-        echo "# SukiSU/SUSFS config options" >> $DEFCONFIG
-        echo "CONFIG_KSU=y" >> $DEFCONFIG
-        echo "CONFIG_SUSFS=y" >> $DEFCONFIG
-        echo "CONFIG_SUSFS_PROC=y" >> $DEFCONFIG
-        echo "CONFIG_SUSFS_INITRC=y" >> $DEFCONFIG
-        echo "CONFIG_SUSFS_SEPOLICY=y" >> $DEFCONFIG
-        echo "CONFIG_SUSFS_DEBUG=y" >> $DEFCONFIG
+        # GKI 2.0 内核需要打开 KPROBES 钩子 :contentReference[oaicite:1]{index=1}
+        echo 'CONFIG_KPROBES=y'   >> out/.config
+        # 启用 KernelSU 核心模块
+        echo 'CONFIG_KSU=y'        >> out/.config
+        # 非 GKI 2.0 设备需要手动钩子 :contentReference[oaicite:2]{index=2}
+        echo 'CONFIG_KSU_MANUAL_HOOK=y' >> out/.config
+        make -C . O=out olddefconfig
 
-    - name: Clone AnyKernel3
+    - name: 编译内核 (IMAGE)
+      run: make -C . O=out -j$(nproc)
+
+    - name: 提取 Image
+      run: cp out/arch/arm64/boot/Image .
+
+    - name: 打包 AnyKernel3 ZIP
       run: |
-        git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
+        git clone https://github.com/anykernel/AnyKernel3 AnyKernel3
+        cp Image AnyKernel3
+        cd AnyKernel3
+        zip -r ../gauguin-Image-AnyKernel3.zip .
 
-    - name: Set Environment Variables
-      run: |
-        echo "CLANG_PATH=$GITHUB_WORKSPACE/toolchain/clang" >> $GITHUB_ENV
-        echo "KERNEL_DIR=$GITHUB_WORKSPACE/kernel" >> $GITHUB_ENV
-        echo "OUT_DIR=$GITHUB_WORKSPACE/kernel/out" >> $GITHUB_ENV
-        echo "DEFCONFIG=vendor/gauguin_user_defconfig" >> $GITHUB_ENV
-        echo "IMAGE_PATH=$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image" >> $GITHUB_ENV
-        echo "AK3_DIR=$GITHUB_WORKSPACE/AnyKernel3" >> $GITHUB_ENV
-
-    - name: Build Kernel
-      run: |
-        export PATH=$CLANG_PATH/bin:$PATH
-        cd $KERNEL_DIR
-        make O=$OUT_DIR ARCH=arm64 $DEFCONFIG CC=clang
-        make -j$(nproc) O=$OUT_DIR ARCH=arm64 \
-          CC=clang \
-          CLANG_TRIPLE=aarch64-linux-gnu- \
-          CROSS_COMPILE=aarch64-linux-gnu- \
-          CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-          LD=ld.lld
-
-    - name: Copy Image to AnyKernel3
-      run: |
-        if [ ! -f "$IMAGE_PATH" ]; then
-          echo "❌ Kernel Image not found!"
-          exit 1
-        fi
-        cp "$IMAGE_PATH" "$AK3_DIR/Image"
-
-    - name: Package Flashable ZIP
-      run: |
-        cd "$AK3_DIR"
-        zip -r9 gauguin-SukiSU-Ultra.zip * -x .git README.md
-
-    - name: Upload Artifact
+    - name: 上传 ZIP 为 Artifact
       uses: actions/upload-artifact@v4
       with:
-        name: gauguin-SukiSU-Ultra
-        path: ${{ env.AK3_DIR }}/gauguin-SukiSU-Ultra.zip
+        name: gauguin-anykernel3-zip
+        path: gauguin-Image-AnyKernel3.zip
