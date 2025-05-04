@@ -8,7 +8,6 @@ permissions:
 
 jobs:
   build:
-    name: Build Kernel
     runs-on: ubuntu-22.04
     permissions:
       actions: write
@@ -34,22 +33,16 @@ jobs:
         curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz
         tar -xf clang-r416183b.tar.gz -C toolchain/clang
 
-    - name: Clone SukiSU-Ultra (susfs-stable)
+    - name: Integrate SukiSU-Ultra (susfs-stable)
       run: |
-        git clone --depth=1 --branch susfs-stable https://github.com/ShirkNeko/SukiSU-Ultra su
-        cp -r su/SukiSU kernel/
-        cp -r su/susfs kernel/
+        cd kernel
+        curl -LSs "https://raw.githubusercontent.com/ShirkNeko/SukiSU-Ultra/main/kernel/setup.sh" | bash -s susfs-stable
 
     - name: Patch defconfig with SukiSU/SUSFS options
       run: |
         DEFCONFIG=kernel/arch/arm64/configs/vendor/gauguin_user_defconfig
         echo >> $DEFCONFIG
         echo "# SukiSU/SUSFS config options" >> $DEFCONFIG
-        echo "CONFIG_SECURITY=y" >> $DEFCONFIG
-        echo "CONFIG_SECURITY_SELINUX=y" >> $DEFCONFIG
-        echo "CONFIG_SECURITY_SELINUX_BOOTPARAM=y" >> $DEFCONFIG
-        echo "CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE=1" >> $DEFCONFIG
-        echo "CONFIG_SECURITY_SELINUX_DISABLE=y" >> $DEFCONFIG
         echo "CONFIG_KSU=y" >> $DEFCONFIG
         echo "CONFIG_SUSFS=y" >> $DEFCONFIG
         echo "CONFIG_SUSFS_PROC=y" >> $DEFCONFIG
@@ -90,12 +83,12 @@ jobs:
         fi
         cp "$IMAGE_PATH" "$AK3_DIR/Image"
 
-    - name: Package AnyKernel3 ZIP
+    - name: Package Flashable ZIP
       run: |
         cd "$AK3_DIR"
         zip -r9 gauguin-SukiSU-Ultra.zip * -x .git README.md
 
-    - name: Upload Flashable Kernel ZIP
+    - name: Upload Artifact
       uses: actions/upload-artifact@v4
       with:
         name: gauguin-SukiSU-Ultra
