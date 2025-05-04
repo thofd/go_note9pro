@@ -65,6 +65,15 @@ jobs:
 
     - name: Build Kernel
       run: |
+        export CLANG_TRIPLE=aarch64-linux-gnu-
+        export CROSS_COMPILE=aarch64-linux-gnu-
+        export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+        export AR=llvm-ar
+        export NM=llvm-nm
+        export OBJCOPY=llvm-objcopy
+        export OBJDUMP=llvm-objdump
+        export STRIP=llvm-strip
+        export AS=llvm-as
         export PATH=$CLANG_PATH/bin:$PATH
         cd $KERNEL_DIR
         make O=$OUT_DIR ARCH=arm64 $DEFCONFIG CC=clang
