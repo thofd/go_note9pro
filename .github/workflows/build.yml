@@ -1,4 +1,4 @@
-name: Build CHATGPT NOTE9PRO 
+name: Build CHATGPT NOTE9PRO
 
 on:
   workflow_dispatch:
@@ -74,6 +74,25 @@ jobs:
           CROSS_COMPILE=aarch64-linux-gnu- \
           CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
           LD=ld.lld
+
+    - name: Verify .config options
+      run: |
+        CONFIG=$OUT_DIR/.config
+        grep "CONFIG_KSU=y" $CONFIG || (echo "❌ CONFIG_KSU not enabled!" && exit 1)
+        grep "CONFIG_SUSFS=y" $CONFIG || (echo "❌ CONFIG_SUSFS not enabled!" && exit 1)
+
+    - name: Check SUSFS patch presence in defconfig
+      run: |
+        DEFCONFIG=kernel/arch/arm64/configs/vendor/gauguin_user_defconfig
+        grep "CONFIG_SUSFS=y" $DEFCONFIG || (echo "❌ SUSFS missing from defconfig!" && exit 1)
+
+    - name: Check for SUSFS symbols in Image
+      run: |
+        if command -v llvm-nm >/dev/null; then
+          llvm-nm -n $IMAGE_PATH | grep susfs || echo "⚠️ SUSFS symbols not found (possibly fine if symbols stripped)"
+        else
+          echo "⚠️ llvm-nm not available, skipping symbol check"
+        fi
 
     - name: Copy Image to AnyKernel3
       run: |
