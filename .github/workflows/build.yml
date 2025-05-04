@@ -26,6 +26,7 @@ jobs:
         sudo apt install -y bc bison build-essential ccache curl flex git \
           kmod libssl-dev libncurses-dev libelf-dev python3 zip wget \
           ca-certificates llvm clang
+        sudo apt-get install binutils-aarch64-linux-gnu
 
     - name: Download AOSP Clang r416183b
       run: |
