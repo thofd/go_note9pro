@@ -8,8 +8,8 @@ permissions:
 
 jobs:
   build:
-    name: Kernel Build
-    runs-on: ubuntu-latest
+    name: Build Kernel
+    runs-on: ubuntu-22.04
     permissions:
       actions: write
       contents: read
@@ -24,35 +24,51 @@ jobs:
     - name: Install Dependencies
       run: |
         sudo apt update
-        sudo apt install -y bc bison build-essential ccache curl flex git kmod libssl-dev \
-          libncurses-dev libelf-dev python3 zip wget ca-certificates axel
+        sudo apt install -y bc bison build-essential ccache curl flex git \
+          kmod libssl-dev libncurses-dev libelf-dev python3 zip wget \
+          ca-certificates
 
     - name: Download AOSP Clang r416183b
       run: |
         mkdir -p toolchain/clang
-        cd toolchain
         curl -LO https://android.googlesource.com/platform/prebuilts/clang/host/linux-x86/+archive/refs/heads/android12-release/clang-r416183b.tar.gz
-        tar -xzf clang-r416183b.tar.gz -C clang
-        cd ..
+        tar -xf clang-r416183b.tar.gz -C toolchain/clang
 
-    - name: Clone SukiSU-Ultra
+    - name: Clone SukiSU-Ultra (susfs-stable)
       run: |
-        git clone --depth=1 https://github.com/ShirkNeko/SukiSU-Ultra su
+        git clone --depth=1 --branch susfs-stable https://github.com/ShirkNeko/SukiSU-Ultra su
         cp -r su/SukiSU kernel/
         cp -r su/susfs kernel/
 
+    - name: Patch defconfig with SukiSU/SUSFS options
+      run: |
+        DEFCONFIG=kernel/arch/arm64/configs/vendor/gauguin_user_defconfig
+        echo >> $DEFCONFIG
+        echo "# SukiSU/SUSFS config options" >> $DEFCONFIG
+        echo "CONFIG_SECURITY=y" >> $DEFCONFIG
+        echo "CONFIG_SECURITY_SELINUX=y" >> $DEFCONFIG
+        echo "CONFIG_SECURITY_SELINUX_BOOTPARAM=y" >> $DEFCONFIG
+        echo "CONFIG_SECURITY_SELINUX_BOOTPARAM_VALUE=1" >> $DEFCONFIG
+        echo "CONFIG_SECURITY_SELINUX_DISABLE=y" >> $DEFCONFIG
+        echo "CONFIG_KSU=y" >> $DEFCONFIG
+        echo "CONFIG_SUSFS=y" >> $DEFCONFIG
+        echo "CONFIG_SUSFS_PROC=y" >> $DEFCONFIG
+        echo "CONFIG_SUSFS_INITRC=y" >> $DEFCONFIG
+        echo "CONFIG_SUSFS_SEPOLICY=y" >> $DEFCONFIG
+        echo "CONFIG_SUSFS_DEBUG=y" >> $DEFCONFIG
+
     - name: Clone AnyKernel3
       run: |
-        git clone --depth=1 https://github.com/osm0sis/AnyKernel3.git AnyKernel3
+        git clone --depth=1 https://github.com/osm0sis/AnyKernel3 AnyKernel3
 
-    - name: Set Build Variables
+    - name: Set Environment Variables
       run: |
-        echo "CLANG_PATH=${{ github.workspace }}/toolchain/clang" >> $GITHUB_ENV
-        echo "KERNEL_DIR=${{ github.workspace }}/kernel" >> $GITHUB_ENV
-        echo "OUT_DIR=${{ github.workspace }}/kernel/out" >> $GITHUB_ENV
+        echo "CLANG_PATH=$GITHUB_WORKSPACE/toolchain/clang" >> $GITHUB_ENV
+        echo "KERNEL_DIR=$GITHUB_WORKSPACE/kernel" >> $GITHUB_ENV
+        echo "OUT_DIR=$GITHUB_WORKSPACE/kernel/out" >> $GITHUB_ENV
         echo "DEFCONFIG=vendor/gauguin_user_defconfig" >> $GITHUB_ENV
-        echo "IMAGE_PATH=${{ github.workspace }}/kernel/out/arch/arm64/boot/Image" >> $GITHUB_ENV
-        echo "AK3_DIR=${{ github.workspace }}/AnyKernel3" >> $GITHUB_ENV
+        echo "IMAGE_PATH=$GITHUB_WORKSPACE/kernel/out/arch/arm64/boot/Image" >> $GITHUB_ENV
+        echo "AK3_DIR=$GITHUB_WORKSPACE/AnyKernel3" >> $GITHUB_ENV
 
     - name: Build Kernel
       run: |
@@ -60,13 +76,13 @@ jobs:
         cd $KERNEL_DIR
         make O=$OUT_DIR ARCH=arm64 $DEFCONFIG CC=clang
         make -j$(nproc) O=$OUT_DIR ARCH=arm64 \
-            CC=clang \
-            CLANG_TRIPLE=aarch64-linux-gnu- \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
-            LD=ld.lld
+          CC=clang \
+          CLANG_TRIPLE=aarch64-linux-gnu- \
+          CROSS_COMPILE=aarch64-linux-gnu- \
+          CROSS_COMPILE_COMPAT=arm-linux-gnueabi- \
+          LD=ld.lld
 
-    - name: Verify Kernel Image
+    - name: Copy Image to AnyKernel3
       run: |
         if [ ! -f "$IMAGE_PATH" ]; then
           echo "❌ Kernel Image not found!"
@@ -74,12 +90,12 @@ jobs:
         fi
         cp "$IMAGE_PATH" "$AK3_DIR/Image"
 
-    - name: Package Flashable ZIP with AnyKernel3
+    - name: Package AnyKernel3 ZIP
       run: |
         cd "$AK3_DIR"
         zip -r9 gauguin-SukiSU-Ultra.zip * -x .git README.md
 
-    - name: Upload Kernel ZIP Artifact
+    - name: Upload Flashable Kernel ZIP
       uses: actions/upload-artifact@v4
       with:
         name: gauguin-SukiSU-Ultra
